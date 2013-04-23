@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: security
+Version: 1.0.dev
+Summary: Security basic models
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Ioan v. Pocol
+Author-email: gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: Basic security rights
+Keywords: Ally REST framework support security plugin
+Platform: all

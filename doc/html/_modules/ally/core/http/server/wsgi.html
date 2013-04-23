@@ -1,0 +1,298 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>ally.core.http.server.wsgi &mdash; ally-py 1.0b1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../../../',
+        VERSION:     '1.0b1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../../../_static/doctools.js"></script>
+    <link rel="top" title="ally-py 1.0b1 documentation" href="../../../../../index.html" />
+    <link rel="up" title="Module code" href="../../../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../index.html">ally-py 1.0b1 documentation</a> &raquo;</li>
+          <li><a href="../../../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for ally.core.http.server.wsgi</h1><div class="highlight"><pre>
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">Created on Oct 23, 2012</span>
+
+<span class="sd">@package: ally core http</span>
+<span class="sd">@copyright: 2012 Sourcefabric o.p.s.</span>
+<span class="sd">@license: http://www.gnu.org/licenses/gpl-3.0.txt</span>
+<span class="sd">@author: Gabriel Nistor</span>
+
+<span class="sd">Provides the WSGI web server support.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">from</span> <span class="nn">ally.api.config</span> <span class="kn">import</span> <span class="n">UPDATE</span><span class="p">,</span> <span class="n">INSERT</span><span class="p">,</span> <span class="n">GET</span><span class="p">,</span> <span class="n">DELETE</span>
+<span class="kn">from</span> <span class="nn">ally.container.ioc</span> <span class="kn">import</span> <span class="n">injected</span>
+<span class="kn">from</span> <span class="nn">ally.core.http.spec.server</span> <span class="kn">import</span> <span class="n">METHOD_OPTIONS</span><span class="p">,</span> <span class="n">RequestHTTP</span><span class="p">,</span> <span class="n">ResponseHTTP</span><span class="p">,</span> \
+    <span class="n">RequestContentHTTP</span><span class="p">,</span> <span class="n">ResponseContentHTTP</span>
+<span class="kn">from</span> <span class="nn">ally.core.spec.codes</span> <span class="kn">import</span> <span class="n">Code</span>
+<span class="kn">from</span> <span class="nn">ally.design.processor</span> <span class="kn">import</span> <span class="n">Processing</span><span class="p">,</span> <span class="n">Assembly</span><span class="p">,</span> <span class="n">ONLY_AVAILABLE</span><span class="p">,</span> \
+    <span class="n">CREATE_REPORT</span><span class="p">,</span> <span class="n">Chain</span>
+<span class="kn">from</span> <span class="nn">ally.support.util_io</span> <span class="kn">import</span> <span class="n">IOutputStream</span><span class="p">,</span> <span class="n">readGenerator</span>
+<span class="kn">from</span> <span class="nn">urllib.parse</span> <span class="kn">import</span> <span class="n">parse_qsl</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+
+<span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+
+<span class="nd">@injected</span>
+<div class="viewcode-block" id="RequestHandler"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.wsgi.RequestHandler">[docs]</a><span class="k">class</span> <span class="nc">RequestHandler</span><span class="p">:</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The server class that handles the requests.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="n">pathAssemblies</span> <span class="o">=</span> <span class="nb">list</span>
+    <span class="c"># A list that contains tuples having on the first position a string pattern for matching a path, and as a value </span>
+    <span class="c"># the assembly to be used for creating the context for handling the request for the path.</span>
+    <span class="n">serverVersion</span> <span class="o">=</span> <span class="nb">str</span>
+    <span class="c"># The server version name</span>
+    <span class="n">headerPrefix</span> <span class="o">=</span> <span class="s">&#39;HTTP_&#39;</span>
+    <span class="c"># The prefix used in the WSGI context for the headers.</span>
+    <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;CONTENT_TYPE&#39;</span><span class="p">,</span> <span class="s">&#39;CONTENT_LENGTH&#39;</span><span class="p">}</span>
+    <span class="c"># The headers to be extracted from environment, this are the exception headers, the ones that do not start with HTTP_</span>
+
+    <span class="n">methods</span> <span class="o">=</span> <span class="p">{</span>
+               <span class="s">&#39;DELETE&#39;</span> <span class="p">:</span> <span class="n">DELETE</span><span class="p">,</span>
+               <span class="s">&#39;GET&#39;</span> <span class="p">:</span> <span class="n">GET</span><span class="p">,</span>
+               <span class="s">&#39;POST&#39;</span> <span class="p">:</span> <span class="n">INSERT</span><span class="p">,</span>
+               <span class="s">&#39;PUT&#39;</span> <span class="p">:</span> <span class="n">UPDATE</span><span class="p">,</span>
+               <span class="s">&#39;OPTIONS&#39;</span> <span class="p">:</span> <span class="n">METHOD_OPTIONS</span>
+               <span class="p">}</span>
+    <span class="n">methodUnknown</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+    <span class="c"># Table mapping response codes to messages; entries have the</span>
+    <span class="c"># form {code: (shortmessage, longmessage)}.</span>
+    <span class="c"># See RFC 2616.</span>
+    <span class="n">responses</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="mi">100</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Continue&#39;</span><span class="p">,</span> <span class="s">&#39;Request received, please continue&#39;</span><span class="p">),</span>
+        <span class="mi">101</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Switching Protocols&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Switching to new protocol; obey Upgrade header&#39;</span><span class="p">),</span>
+
+        <span class="mi">200</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;OK&#39;</span><span class="p">,</span> <span class="s">&#39;Request fulfilled, document follows&#39;</span><span class="p">),</span>
+        <span class="mi">201</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Created&#39;</span><span class="p">,</span> <span class="s">&#39;Document created, URL follows&#39;</span><span class="p">),</span>
+        <span class="mi">202</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Accepted&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Request accepted, processing continues off-line&#39;</span><span class="p">),</span>
+        <span class="mi">203</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Non-Authoritative Information&#39;</span><span class="p">,</span> <span class="s">&#39;Request fulfilled from cache&#39;</span><span class="p">),</span>
+        <span class="mi">204</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;No Content&#39;</span><span class="p">,</span> <span class="s">&#39;Request fulfilled, nothing follows&#39;</span><span class="p">),</span>
+        <span class="mi">205</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Reset Content&#39;</span><span class="p">,</span> <span class="s">&#39;Clear input form for further input.&#39;</span><span class="p">),</span>
+        <span class="mi">206</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Partial Content&#39;</span><span class="p">,</span> <span class="s">&#39;Partial content follows.&#39;</span><span class="p">),</span>
+
+        <span class="mi">300</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Multiple Choices&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Object has several resources -- see URI list&#39;</span><span class="p">),</span>
+        <span class="mi">301</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Moved Permanently&#39;</span><span class="p">,</span> <span class="s">&#39;Object moved permanently -- see URI list&#39;</span><span class="p">),</span>
+        <span class="mi">302</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Found&#39;</span><span class="p">,</span> <span class="s">&#39;Object moved temporarily -- see URI list&#39;</span><span class="p">),</span>
+        <span class="mi">303</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;See Other&#39;</span><span class="p">,</span> <span class="s">&#39;Object moved -- see Method and URL list&#39;</span><span class="p">),</span>
+        <span class="mi">304</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Not Modified&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Document has not changed since given time&#39;</span><span class="p">),</span>
+        <span class="mi">305</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Use Proxy&#39;</span><span class="p">,</span>
+              <span class="s">&#39;You must use proxy specified in Location to access this &#39;</span>
+              <span class="s">&#39;resource.&#39;</span><span class="p">),</span>
+        <span class="mi">307</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Temporary Redirect&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Object moved temporarily -- see URI list&#39;</span><span class="p">),</span>
+
+        <span class="mi">400</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Bad Request&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Bad request syntax or unsupported method&#39;</span><span class="p">),</span>
+        <span class="mi">401</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Unauthorized&#39;</span><span class="p">,</span>
+              <span class="s">&#39;No permission -- see authorization schemes&#39;</span><span class="p">),</span>
+        <span class="mi">402</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Payment Required&#39;</span><span class="p">,</span>
+              <span class="s">&#39;No payment -- see charging schemes&#39;</span><span class="p">),</span>
+        <span class="mi">403</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Forbidden&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Request forbidden -- authorization will not help&#39;</span><span class="p">),</span>
+        <span class="mi">404</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Not Found&#39;</span><span class="p">,</span> <span class="s">&#39;Nothing matches the given URI&#39;</span><span class="p">),</span>
+        <span class="mi">405</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Method Not Allowed&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Specified method is invalid for this resource.&#39;</span><span class="p">),</span>
+        <span class="mi">406</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Not Acceptable&#39;</span><span class="p">,</span> <span class="s">&#39;URI not available in preferred format.&#39;</span><span class="p">),</span>
+        <span class="mi">407</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Proxy Authentication Required&#39;</span><span class="p">,</span> <span class="s">&#39;You must authenticate with &#39;</span>
+              <span class="s">&#39;this proxy before proceeding.&#39;</span><span class="p">),</span>
+        <span class="mi">408</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Request Timeout&#39;</span><span class="p">,</span> <span class="s">&#39;Request timed out; try again later.&#39;</span><span class="p">),</span>
+        <span class="mi">409</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Conflict&#39;</span><span class="p">,</span> <span class="s">&#39;Request conflict.&#39;</span><span class="p">),</span>
+        <span class="mi">410</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Gone&#39;</span><span class="p">,</span>
+              <span class="s">&#39;URI no longer exists and has been permanently removed.&#39;</span><span class="p">),</span>
+        <span class="mi">411</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Length Required&#39;</span><span class="p">,</span> <span class="s">&#39;Client must specify Content-Length.&#39;</span><span class="p">),</span>
+        <span class="mi">412</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Precondition Failed&#39;</span><span class="p">,</span> <span class="s">&#39;Precondition in headers is false.&#39;</span><span class="p">),</span>
+        <span class="mi">413</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Request Entity Too Large&#39;</span><span class="p">,</span> <span class="s">&#39;Entity is too large.&#39;</span><span class="p">),</span>
+        <span class="mi">414</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Request-URI Too Long&#39;</span><span class="p">,</span> <span class="s">&#39;URI is too long.&#39;</span><span class="p">),</span>
+        <span class="mi">415</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Unsupported Media Type&#39;</span><span class="p">,</span> <span class="s">&#39;Entity body in unsupported format.&#39;</span><span class="p">),</span>
+        <span class="mi">416</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Requested Range Not Satisfiable&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Cannot satisfy request range.&#39;</span><span class="p">),</span>
+        <span class="mi">417</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Expectation Failed&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Expect condition could not be satisfied.&#39;</span><span class="p">),</span>
+
+        <span class="mi">500</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Internal Server Error&#39;</span><span class="p">,</span> <span class="s">&#39;Server got itself in trouble&#39;</span><span class="p">),</span>
+        <span class="mi">501</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Not Implemented&#39;</span><span class="p">,</span>
+              <span class="s">&#39;Server does not support this operation&#39;</span><span class="p">),</span>
+        <span class="mi">502</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Bad Gateway&#39;</span><span class="p">,</span> <span class="s">&#39;Invalid responses from another server/proxy.&#39;</span><span class="p">),</span>
+        <span class="mi">503</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Service Unavailable&#39;</span><span class="p">,</span>
+              <span class="s">&#39;The server cannot process the request due to a high load&#39;</span><span class="p">),</span>
+        <span class="mi">504</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;Gateway Timeout&#39;</span><span class="p">,</span>
+              <span class="s">&#39;The gateway server did not receive a timely response&#39;</span><span class="p">),</span>
+        <span class="mi">505</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;HTTP Version Not Supported&#39;</span><span class="p">,</span> <span class="s">&#39;Cannot fulfill request.&#39;</span><span class="p">),</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pathAssemblies</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&#39;Invalid path assemblies </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">pathAssemblies</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span><span class="p">,</span> <span class="nb">str</span><span class="p">),</span> <span class="s">&#39;Invalid server version </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headerPrefix</span><span class="p">,</span> <span class="nb">str</span><span class="p">),</span> <span class="s">&#39;Invalid header prefix </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">headerPrefix</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">,</span> <span class="nb">set</span><span class="p">),</span> <span class="s">&#39;Invalid headers </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">methods</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&#39;Invalid methods </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">methods</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">methodUnknown</span><span class="p">,</span> <span class="nb">int</span><span class="p">),</span> <span class="s">&#39;Invalid unknwon method </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">methodUnknown</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">responses</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&#39;Invalid responses </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">responses</span>
+
+        <span class="n">pathProcessing</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">assembly</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pathAssemblies</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="nb">str</span><span class="p">),</span> <span class="s">&#39;Invalid pattern </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">pattern</span>
+            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">assembly</span><span class="p">,</span> <span class="n">Assembly</span><span class="p">),</span> <span class="s">&#39;Invalid assembly </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">assembly</span>
+
+            <span class="n">processing</span><span class="p">,</span> <span class="n">report</span> <span class="o">=</span> <span class="n">assembly</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">ONLY_AVAILABLE</span><span class="p">,</span> <span class="n">CREATE_REPORT</span><span class="p">,</span>
+                                                 <span class="n">request</span><span class="o">=</span><span class="n">RequestHTTP</span><span class="p">,</span> <span class="n">requestCnt</span><span class="o">=</span><span class="n">RequestContentHTTP</span><span class="p">,</span>
+                                                 <span class="n">response</span><span class="o">=</span><span class="n">ResponseHTTP</span><span class="p">,</span> <span class="n">responseCnt</span><span class="o">=</span><span class="n">ResponseContentHTTP</span><span class="p">)</span>
+
+            <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;Assembly report for pattern </span><span class="se">\&#39;</span><span class="si">%s</span><span class="se">\&#39;</span><span class="s">:</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">report</span><span class="p">)</span>
+            <span class="n">pathProcessing</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">pattern</span><span class="p">),</span> <span class="n">processing</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pathProcessing</span> <span class="o">=</span> <span class="n">pathProcessing</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">defaultHeaders</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;Server&#39;</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span><span class="p">,</span> <span class="s">&#39;Content-Type&#39;</span><span class="p">:</span><span class="s">&#39;text&#39;</span><span class="p">}</span>
+
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">respond</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Process the WSGI call.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&#39;Invalid context </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">context</span>
+        <span class="k">assert</span> <span class="nb">callable</span><span class="p">(</span><span class="n">respond</span><span class="p">),</span> <span class="s">&#39;Invalid respond callable </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">respond</span>
+
+        <span class="n">responseHeaders</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultHeaders</span><span class="p">)</span>
+        <span class="n">path</span><span class="p">,</span> <span class="n">scheme</span> <span class="o">=</span> <span class="n">context</span><span class="p">[</span><span class="s">&#39;PATH_INFO&#39;</span><span class="p">],</span> <span class="n">context</span><span class="p">[</span><span class="s">&#39;wsgi.url_scheme&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span> <span class="n">path</span> <span class="o">=</span> <span class="n">path</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+
+        <span class="k">for</span> <span class="n">regex</span><span class="p">,</span> <span class="n">processing</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pathProcessing</span><span class="p">:</span>
+            <span class="n">match</span> <span class="o">=</span> <span class="n">regex</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+                <span class="n">uriRoot</span> <span class="o">=</span> <span class="n">path</span><span class="p">[:</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()]</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">uriRoot</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span> <span class="n">uriRoot</span> <span class="o">+=</span> <span class="s">&#39;/&#39;</span>
+
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">processing</span><span class="p">,</span> <span class="n">Processing</span><span class="p">),</span> <span class="s">&#39;Invalid processing </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">processing</span>
+                <span class="n">req</span><span class="p">,</span> <span class="n">reqCnt</span> <span class="o">=</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;request&#39;</span><span class="p">](),</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;requestCnt&#39;</span><span class="p">]()</span>
+                <span class="n">rsp</span><span class="p">,</span> <span class="n">rspCnt</span> <span class="o">=</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;response&#39;</span><span class="p">](),</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;responseCnt&#39;</span><span class="p">]()</span>
+
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="n">RequestHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid request </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">req</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reqCnt</span><span class="p">,</span> <span class="n">RequestContentHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid request content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">reqCnt</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rsp</span><span class="p">,</span> <span class="n">ResponseHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid response </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">rsp</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rspCnt</span><span class="p">,</span> <span class="n">ResponseContentHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid response content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">rspCnt</span>
+
+                <span class="n">req</span><span class="o">.</span><span class="n">scheme</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">uriRoot</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">uri</span> <span class="o">=</span> <span class="n">scheme</span><span class="p">,</span> <span class="n">uriRoot</span><span class="p">,</span> <span class="n">path</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">():]</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">respond</span><span class="p">(</span><span class="s">&#39;404 Not Found&#39;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">responseHeaders</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+            <span class="k">return</span> <span class="p">()</span>
+
+        <span class="n">req</span><span class="o">.</span><span class="n">method</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">methods</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">context</span><span class="p">[</span><span class="s">&#39;REQUEST_METHOD&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">methodUnknown</span><span class="p">)</span>
+        <span class="n">req</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">parse_qsl</span><span class="p">(</span><span class="n">context</span><span class="p">[</span><span class="s">&#39;QUERY_STRING&#39;</span><span class="p">],</span> <span class="bp">True</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+        <span class="n">prefix</span><span class="p">,</span> <span class="n">prefixLen</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headerPrefix</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headerPrefix</span><span class="p">,)</span>
+        <span class="n">req</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="n">hname</span><span class="p">[</span><span class="n">prefixLen</span><span class="p">:]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;_&#39;</span><span class="p">,</span> <span class="s">&#39;-&#39;</span><span class="p">):</span><span class="n">hvalue</span>
+                       <span class="k">for</span> <span class="n">hname</span><span class="p">,</span> <span class="n">hvalue</span> <span class="ow">in</span> <span class="n">context</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">hname</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">)}</span>
+        <span class="n">req</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">hname</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;_&#39;</span><span class="p">,</span> <span class="s">&#39;-&#39;</span><span class="p">):</span><span class="n">hvalue</span>
+                            <span class="k">for</span> <span class="n">hname</span><span class="p">,</span> <span class="n">hvalue</span> <span class="ow">in</span> <span class="n">context</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">hname</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">})</span>
+        <span class="n">reqCnt</span><span class="o">.</span><span class="n">source</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;wsgi.input&#39;</span><span class="p">)</span>
+
+        <span class="n">Chain</span><span class="p">(</span><span class="n">processing</span><span class="p">)</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">request</span><span class="o">=</span><span class="n">req</span><span class="p">,</span> <span class="n">requestCnt</span><span class="o">=</span><span class="n">reqCnt</span><span class="p">,</span> <span class="n">response</span><span class="o">=</span><span class="n">rsp</span><span class="p">,</span> <span class="n">responseCnt</span><span class="o">=</span><span class="n">rspCnt</span><span class="p">)</span><span class="o">.</span><span class="n">doAll</span><span class="p">()</span>
+
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="p">,</span> <span class="n">Code</span><span class="p">),</span> <span class="s">&#39;Invalid response code </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">rsp</span><span class="o">.</span><span class="n">code</span>
+
+        <span class="n">responseHeaders</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">headers</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ResponseHTTP</span><span class="o">.</span><span class="n">text</span> <span class="ow">in</span> <span class="n">rsp</span><span class="p">:</span> <span class="n">status</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">code</span><span class="p">,</span> <span class="n">rsp</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">responses</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">text</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span> <span class="n">status</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">code</span><span class="p">,</span> <span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span> <span class="n">status</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+
+        <span class="n">respond</span><span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">responseHeaders</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+
+        <span class="k">if</span> <span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span><span class="p">,</span> <span class="n">IOutputStream</span><span class="p">):</span> <span class="k">return</span> <span class="n">readGenerator</span><span class="p">(</span><span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span>
+        <span class="k">return</span> <span class="p">()</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../index.html">ally-py 1.0b1 documentation</a> &raquo;</li>
+          <li><a href="../../../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Gabriel Nistor.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

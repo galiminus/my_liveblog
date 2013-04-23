@@ -1,0 +1,23 @@
+core Package
+============
+
+:mod:`core` Package
+-------------------
+
+.. automodule:: ally.core
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+Subpackages
+-----------
+
+.. toctree::
+
+    ally.core.authentication
+    ally.core.cdm
+    ally.core.http
+    ally.core.impl
+    ally.core.spec
+    ally.core.sqlalchemy
+

@@ -1,0 +1,11 @@
+support Package
+===============
+
+:mod:`tnetstrings` Module
+-------------------------
+
+.. automodule:: ally.core.http.support.tnetstrings
+    :members:
+    :undoc-members:
+    :show-inheritance:
+

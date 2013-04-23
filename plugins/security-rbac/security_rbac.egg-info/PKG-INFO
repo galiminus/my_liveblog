@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: security-rbac
+Version: 1.0.dev
+Summary: RBAC structure plugin
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Ioan v. Pocol
+Author-email: gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: RBAC structure
+Keywords: Ally REST framework support RBAC plugin
+Platform: all

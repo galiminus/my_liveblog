@@ -1,0 +1,2 @@
+For install instructions please read:
+https://wiki.sourcefabric.org/x/KYOg

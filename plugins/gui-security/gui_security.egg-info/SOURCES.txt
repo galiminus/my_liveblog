@@ -1,0 +1,14 @@
+setup.cfg
+setup.py
+__plugin__/__init__.py
+__plugin__/gui_security/__init__.py
+__plugin__/gui_security/acl.py
+acl/__init__.py
+acl/impl/__init__.py
+acl/impl/action_right.py
+gui_security.egg-info/PKG-INFO
+gui_security.egg-info/SOURCES.txt
+gui_security.egg-info/dependency_links.txt
+gui_security.egg-info/requires.txt
+gui_security.egg-info/top_level.txt
+gui_security.egg-info/zip-safe

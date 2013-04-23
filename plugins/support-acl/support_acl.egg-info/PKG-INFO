@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: support-acl
+Version: 1.0.dev
+Summary: Support for acl
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Gabriel Nistor
+Author-email: gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: Support for acl definitions
+Keywords: Ally REST framework support acl plugin
+Platform: all

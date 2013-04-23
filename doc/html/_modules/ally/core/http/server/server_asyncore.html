@@ -1,0 +1,526 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>ally.core.http.server.server_asyncore &mdash; ally-py 1.0b1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../../../',
+        VERSION:     '1.0b1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../../../_static/doctools.js"></script>
+    <link rel="top" title="ally-py 1.0b1 documentation" href="../../../../../index.html" />
+    <link rel="up" title="Module code" href="../../../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../index.html">ally-py 1.0b1 documentation</a> &raquo;</li>
+          <li><a href="../../../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for ally.core.http.server.server_asyncore</h1><div class="highlight"><pre>
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">Created on Jul 8, 2011</span>
+
+<span class="sd">@package: ally core http</span>
+<span class="sd">@copyright: 2012 Sourcefabric o.p.s.</span>
+<span class="sd">@license: http://www.gnu.org/licenses/gpl-3.0.txt</span>
+<span class="sd">@author: Gabriel Nistor</span>
+
+<span class="sd">Provides the asyncore web server based on the python build in http server and asyncore package.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">from</span> <span class="nn">ally.api.config</span> <span class="kn">import</span> <span class="n">GET</span><span class="p">,</span> <span class="n">INSERT</span><span class="p">,</span> <span class="n">UPDATE</span><span class="p">,</span> <span class="n">DELETE</span>
+<span class="kn">from</span> <span class="nn">ally.core.http.spec.server</span> <span class="kn">import</span> <span class="n">METHOD_OPTIONS</span><span class="p">,</span> <span class="n">RequestHTTP</span><span class="p">,</span> <span class="n">ResponseHTTP</span><span class="p">,</span> \
+    <span class="n">RequestContentHTTP</span><span class="p">,</span> <span class="n">ResponseContentHTTP</span>
+<span class="kn">from</span> <span class="nn">ally.core.spec.codes</span> <span class="kn">import</span> <span class="n">Code</span>
+<span class="kn">from</span> <span class="nn">ally.design.context</span> <span class="kn">import</span> <span class="n">optional</span>
+<span class="kn">from</span> <span class="nn">ally.design.processor</span> <span class="kn">import</span> <span class="n">Processing</span><span class="p">,</span> <span class="n">Assembly</span><span class="p">,</span> <span class="n">ONLY_AVAILABLE</span><span class="p">,</span> \
+    <span class="n">CREATE_REPORT</span><span class="p">,</span> <span class="n">Chain</span>
+<span class="kn">from</span> <span class="nn">ally.support.util_io</span> <span class="kn">import</span> <span class="n">IOutputStream</span><span class="p">,</span> <span class="n">readGenerator</span>
+<span class="kn">from</span> <span class="nn">asyncore</span> <span class="kn">import</span> <span class="n">dispatcher</span><span class="p">,</span> <span class="n">loop</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">deque</span>
+<span class="kn">from</span> <span class="nn">http.server</span> <span class="kn">import</span> <span class="n">BaseHTTPRequestHandler</span>
+<span class="kn">from</span> <span class="nn">io</span> <span class="kn">import</span> <span class="n">BytesIO</span>
+<span class="kn">from</span> <span class="nn">urllib.parse</span> <span class="kn">import</span> <span class="n">urlparse</span><span class="p">,</span> <span class="n">parse_qsl</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+
+<span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+<span class="c"># Constants used in indicating the write option. </span>
+<span class="n">WRITE_BYTES</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">WRITE_ITER</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="n">WRITE_CLOSE</span> <span class="o">=</span> <span class="mi">3</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="RequestContentHTTPAsyncore"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.RequestContentHTTPAsyncore">[docs]</a><span class="k">class</span> <span class="nc">RequestContentHTTPAsyncore</span><span class="p">(</span><span class="n">RequestContentHTTP</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The request content context.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># ---------------------------------------------------------------- Optional</span>
+    <span class="n">contentReader</span> <span class="o">=</span> <span class="n">optional</span><span class="p">(</span><span class="n">Callable</span><span class="p">,</span> <span class="n">doc</span><span class="o">=</span><span class="s">&#39;&#39;&#39;</span>
+<span class="s">    @rtype: Callable</span>
+<span class="s">    The content reader callable used for pushing data from the asyncore read. Once the reader is finalized it will</span>
+<span class="s">    return a chain that is used for further request processing.</span>
+<span class="s">    &#39;&#39;&#39;</span><span class="p">)</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+</div>
+<div class="viewcode-block" id="RequestHandler"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.RequestHandler">[docs]</a><span class="k">class</span> <span class="nc">RequestHandler</span><span class="p">(</span><span class="n">dispatcher</span><span class="p">,</span> <span class="n">BaseHTTPRequestHandler</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Request handler implementation based on @see: async_chat and @see: BaseHTTPRequestHandler.</span>
+<span class="sd">    The async chat request handler. It relays for the HTTP processing on the @see: BaseHTTPRequestHandler,</span>
+<span class="sd">    and uses the async_chat to asynchronous communication.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    
+    <span class="n">bufferSize</span> <span class="o">=</span> <span class="mi">10</span> <span class="o">*</span> <span class="mi">1024</span>
+    <span class="c"># The buffer size used for reading and writing.</span>
+    <span class="n">maximumRequestSize</span> <span class="o">=</span> <span class="mi">100</span> <span class="o">*</span> <span class="mi">1024</span>
+    <span class="c"># The maximum request size, 100 kilobytes</span>
+    <span class="n">requestTerminator</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n\r\n</span><span class="s">&#39;</span>
+    <span class="c"># Terminator that signals the http request is complete </span>
+
+    <span class="n">methods</span> <span class="o">=</span> <span class="p">{</span>
+               <span class="s">&#39;DELETE&#39;</span> <span class="p">:</span> <span class="n">DELETE</span><span class="p">,</span>
+               <span class="s">&#39;GET&#39;</span> <span class="p">:</span> <span class="n">GET</span><span class="p">,</span>
+               <span class="s">&#39;POST&#39;</span> <span class="p">:</span> <span class="n">INSERT</span><span class="p">,</span>
+               <span class="s">&#39;PUT&#39;</span> <span class="p">:</span> <span class="n">UPDATE</span><span class="p">,</span>
+               <span class="s">&#39;OPTIONS&#39;</span> <span class="p">:</span> <span class="n">METHOD_OPTIONS</span>
+               <span class="p">}</span>
+    <span class="n">methodUnknown</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="c"># The available method for processing.</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">server</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Construct the request handler.</span>
+<span class="sd">        </span>
+<span class="sd">        @param server: AsyncServer</span>
+<span class="sd">            The server that created the request.</span>
+<span class="sd">        @param request: socket</span>
+<span class="sd">            The connection request socket.</span>
+<span class="sd">        @param address: tuple(string, integer)</span>
+<span class="sd">            The client address.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">server</span><span class="p">,</span> <span class="n">AsyncServer</span><span class="p">),</span> <span class="s">&#39;Invalid server </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">server</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">),</span> <span class="s">&#39;Invalid address </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">address</span>
+        
+        <span class="n">dispatcher</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="n">server</span><span class="o">.</span><span class="n">map</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span> <span class="o">=</span> <span class="n">server</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_address</span> <span class="o">=</span> <span class="n">address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connection</span> <span class="o">=</span> <span class="n">request</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">request_version</span> <span class="o">=</span> <span class="s">&#39;HTTP/1.1&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">requestline</span> <span class="o">=</span> <span class="mi">0</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stage</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_readCarry</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">_next</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        
+<div class="viewcode-block" id="RequestHandler.handle_read"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.RequestHandler.handle_read">[docs]</a>    <span class="k">def</span> <span class="nf">handle_read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.handle_read</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">try</span><span class="p">:</span> <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bufferSize</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;Exception occurred while reading the content from </span><span class="se">\&#39;</span><span class="si">%s</span><span class="se">\&#39;</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">connection</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_data</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+    </div>
+<div class="viewcode-block" id="RequestHandler.handle_error"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.RequestHandler.handle_error">[docs]</a>    <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;A problem occurred in the server&#39;</span><span class="p">)</span>
+    </div>
+<div class="viewcode-block" id="RequestHandler.end_headers"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.RequestHandler.end_headers">[docs]</a>    <span class="k">def</span> <span class="nf">end_headers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: BaseHTTPRequestHandler.end_headers</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">WRITE_BYTES</span><span class="p">,</span> <span class="n">memoryview</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="RequestHandler.log_message"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.RequestHandler.log_message">[docs]</a>    <span class="k">def</span> <span class="nf">log_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">format</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: BaseHTTPRequestHandler.log_message</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="c"># TODO: see for a better solution for this, check for next python release</span>
+        <span class="c"># This is a fix: whenever a message is logged there is an attempt to find some sort of host name which</span>
+        <span class="c"># creates a big delay whenever the request is made from a non localhost client.</span>
+        <span class="k">assert</span> <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">format</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">True</span>
+        
+    <span class="c"># ----------------------------------------------------------------</span>
+    </div>
+    <span class="k">def</span> <span class="nf">_next</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stage</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Proceed to next stage.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">stage</span><span class="p">,</span> <span class="nb">int</span><span class="p">),</span> <span class="s">&#39;Invalid stage </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">stage</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">readable</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;_</span><span class="si">%s</span><span class="s">_readable&#39;</span> <span class="o">%</span> <span class="n">stage</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_data</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;_</span><span class="si">%s</span><span class="s">_handle_data&#39;</span> <span class="o">%</span> <span class="n">stage</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">writable</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;_</span><span class="si">%s</span><span class="s">_writable&#39;</span> <span class="o">%</span> <span class="n">stage</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_write</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;_</span><span class="si">%s</span><span class="s">_handle_write&#39;</span> <span class="o">%</span> <span class="n">stage</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+          
+    <span class="c"># ----------------------------------------------------------------</span>
+    
+    <span class="k">def</span> <span class="nf">_1_readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.readable</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">True</span>
+    
+    <span class="k">def</span> <span class="nf">_1_handle_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Handle the data as being part of the request.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_readCarry</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span> <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_readCarry</span> <span class="o">+</span> <span class="n">data</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">requestTerminator</span><span class="p">)</span>
+        <span class="n">requestTerminatorLen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">requestTerminator</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">index</span> <span class="o">+=</span> <span class="n">requestTerminatorLen</span> 
+            <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="n">index</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">raw_requestline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">parse_request</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span> <span class="o">=</span> <span class="bp">None</span>
+            
+            <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">methods</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">command</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">methodUnknown</span><span class="p">))</span>
+            
+            <span class="k">if</span> <span class="n">index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">handle_data</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">handle_data</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">index</span><span class="p">:])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_readCarry</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="o">-</span><span class="n">requestTerminatorLen</span><span class="p">:]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="o">-</span><span class="n">requestTerminatorLen</span><span class="p">])</span>
+            
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">maximumRequestSize</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">400</span><span class="p">,</span> <span class="s">&#39;Request to long&#39;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                
+    <span class="k">def</span> <span class="nf">_1_writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.writable</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">False</span>
+        
+    <span class="c"># ----------------------------------------------------------------</span>
+    
+    <span class="k">def</span> <span class="nf">_2_readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.readable</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+    
+    <span class="k">def</span> <span class="nf">_2_handle_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Handle the data as being part of the request.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;No reader available&#39;</span>
+        <span class="n">chain</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">chain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">chain</span><span class="p">,</span> <span class="n">Chain</span><span class="p">),</span> <span class="s">&#39;Invalid chain </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">chain</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_next</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>  <span class="c"># Now we proceed to write stage</span>
+            <span class="n">chain</span><span class="o">.</span><span class="n">doAll</span><span class="p">()</span>
+            
+    <span class="k">def</span> <span class="nf">_2_writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.writable</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">False</span>
+            
+    <span class="c"># ----------------------------------------------------------------</span>
+
+    <span class="k">def</span> <span class="nf">_3_readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.readable</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">False</span>
+            
+    <span class="k">def</span> <span class="nf">_3_writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.writable</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">_3_handle_write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.handle_write</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="p">,</span> <span class="s">&#39;Nothing to write&#39;</span>
+        
+        <span class="n">what</span><span class="p">,</span> <span class="n">content</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="n">what</span> <span class="ow">in</span> <span class="p">(</span><span class="n">WRITE_ITER</span><span class="p">,</span> <span class="n">WRITE_BYTES</span><span class="p">,</span> <span class="n">WRITE_CLOSE</span><span class="p">),</span> <span class="s">&#39;Invalid what </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">what</span>
+        <span class="k">if</span> <span class="n">what</span> <span class="o">==</span> <span class="n">WRITE_ITER</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span> <span class="n">data</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="nb">next</span><span class="p">(</span><span class="n">content</span><span class="p">))</span>
+            <span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">return</span>
+        <span class="k">elif</span> <span class="n">what</span> <span class="o">==</span> <span class="n">WRITE_BYTES</span><span class="p">:</span> <span class="n">data</span> <span class="o">=</span> <span class="n">content</span>
+        <span class="k">elif</span> <span class="n">what</span> <span class="o">==</span> <span class="n">WRITE_CLOSE</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">return</span>
+        
+        <span class="n">dataLen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">dataLen</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">bufferSize</span><span class="p">:</span> <span class="n">sent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="bp">self</span><span class="o">.</span><span class="n">bufferSize</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span> <span class="n">sent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;Exception occurred while writing to the connection </span><span class="se">\&#39;</span><span class="si">%s</span><span class="se">\&#39;</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">connection</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">sent</span> <span class="o">&lt;</span> <span class="n">dataLen</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">what</span> <span class="o">==</span> <span class="n">WRITE_ITER</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="o">.</span><span class="n">appendleft</span><span class="p">((</span><span class="n">WRITE_BYTES</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="n">sent</span><span class="p">:]))</span>
+            <span class="k">elif</span> <span class="n">what</span> <span class="o">==</span> <span class="n">WRITE_BYTES</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">WRITE_BYTES</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="n">sent</span><span class="p">:])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">what</span> <span class="o">==</span> <span class="n">WRITE_BYTES</span><span class="p">:</span> <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        
+    <span class="c"># ----------------------------------------------------------------</span>
+    
+    <span class="k">def</span> <span class="nf">_process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">):</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="n">urlparse</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">regex</span><span class="p">,</span> <span class="n">processing</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">pathProcessing</span><span class="p">:</span>
+            <span class="n">match</span> <span class="o">=</span> <span class="n">regex</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+                <span class="n">uriRoot</span> <span class="o">=</span> <span class="n">path</span><span class="p">[:</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()]</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">uriRoot</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span> <span class="n">uriRoot</span> <span class="o">+=</span> <span class="s">&#39;/&#39;</span>
+
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">processing</span><span class="p">,</span> <span class="n">Processing</span><span class="p">),</span> <span class="s">&#39;Invalid processing </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">processing</span>
+                <span class="n">req</span><span class="p">,</span> <span class="n">reqCnt</span> <span class="o">=</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;request&#39;</span><span class="p">](),</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;requestCnt&#39;</span><span class="p">]()</span>
+                <span class="n">rsp</span><span class="p">,</span> <span class="n">rspCnt</span> <span class="o">=</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;response&#39;</span><span class="p">](),</span> <span class="n">processing</span><span class="o">.</span><span class="n">contexts</span><span class="p">[</span><span class="s">&#39;responseCnt&#39;</span><span class="p">]()</span>
+
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="n">RequestHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid request </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">req</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reqCnt</span><span class="p">,</span> <span class="n">RequestContentHTTPAsyncore</span><span class="p">),</span> <span class="s">&#39;Invalid request content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">reqCnt</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rsp</span><span class="p">,</span> <span class="n">ResponseHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid response </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">rsp</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rspCnt</span><span class="p">,</span> <span class="n">ResponseContentHTTP</span><span class="p">),</span> <span class="s">&#39;Invalid response content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">rspCnt</span>
+
+                <span class="n">req</span><span class="o">.</span><span class="n">scheme</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">uriRoot</span><span class="p">,</span> <span class="n">req</span><span class="o">.</span><span class="n">uri</span> <span class="o">=</span> <span class="s">&#39;http&#39;</span><span class="p">,</span> <span class="n">uriRoot</span><span class="p">,</span> <span class="n">path</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">():]</span>
+                <span class="n">req</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">parse_qsl</span><span class="p">(</span><span class="n">url</span><span class="o">.</span><span class="n">query</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">404</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">return</span>
+
+        <span class="n">req</span><span class="o">.</span><span class="n">method</span> <span class="o">=</span> <span class="n">method</span>
+        <span class="n">req</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">respond</span><span class="p">():</span>
+            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="p">,</span> <span class="n">Code</span><span class="p">),</span> <span class="s">&#39;Invalid response code </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">rsp</span><span class="o">.</span><span class="n">code</span>
+    
+            <span class="k">if</span> <span class="n">ResponseHTTP</span><span class="o">.</span><span class="n">headers</span> <span class="ow">in</span> <span class="n">rsp</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">rsp</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">items</span><span class="p">():</span> <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    
+            <span class="k">if</span> <span class="n">ResponseHTTP</span><span class="o">.</span><span class="n">text</span> <span class="ow">in</span> <span class="n">rsp</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">code</span><span class="p">,</span> <span class="n">rsp</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="n">rsp</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+    
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+    
+            <span class="k">if</span> <span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span><span class="p">,</span> <span class="n">IOutputStream</span><span class="p">):</span> <span class="n">source</span> <span class="o">=</span> <span class="n">readGenerator</span><span class="p">(</span><span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bufferSize</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span> <span class="n">source</span> <span class="o">=</span> <span class="n">rspCnt</span><span class="o">.</span><span class="n">source</span>
+    
+                <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">WRITE_ITER</span><span class="p">,</span> <span class="nb">iter</span><span class="p">(</span><span class="n">source</span><span class="p">)))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_writeq</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">WRITE_CLOSE</span><span class="p">,</span> <span class="bp">None</span><span class="p">))</span>
+            
+        <span class="n">chain</span> <span class="o">=</span> <span class="n">Chain</span><span class="p">(</span><span class="n">processing</span><span class="p">)</span>
+        <span class="n">chain</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">request</span><span class="o">=</span><span class="n">req</span><span class="p">,</span> <span class="n">requestCnt</span><span class="o">=</span><span class="n">reqCnt</span><span class="p">,</span> <span class="n">response</span><span class="o">=</span><span class="n">rsp</span><span class="p">,</span> <span class="n">responseCnt</span><span class="o">=</span><span class="n">rspCnt</span><span class="p">)</span>
+        <span class="n">chain</span><span class="o">.</span><span class="n">callBack</span><span class="p">(</span><span class="n">respond</span><span class="p">)</span>
+        
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">chain</span><span class="o">.</span><span class="n">do</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_next</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>  <span class="c"># Now we proceed to write stage</span>
+                <span class="k">break</span>
+            <span class="k">if</span> <span class="n">reqCnt</span><span class="o">.</span><span class="n">contentReader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_next</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>  <span class="c"># Now we proceed to read stage</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="o">=</span> <span class="n">reqCnt</span><span class="o">.</span><span class="n">contentReader</span>
+                <span class="k">break</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+</div>
+<div class="viewcode-block" id="AsyncServer"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.AsyncServer">[docs]</a><span class="k">class</span> <span class="nc">AsyncServer</span><span class="p">(</span><span class="n">dispatcher</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The asyncore server handling the connection.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">timeout</span> <span class="o">=</span> <span class="mf">10.0</span>
+    <span class="c"># The timeout for select loop.</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">serverAddress</span><span class="p">,</span> <span class="n">pathProcessing</span><span class="p">,</span> <span class="n">requestHandlerFactory</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Construct the server.</span>
+<span class="sd">        </span>
+<span class="sd">        @param serverAddress: tuple(string, integer)</span>
+<span class="sd">            The server address host and port.</span>
+<span class="sd">        @param pathProcessing: list[tuple(regex, Processing)] </span>
+<span class="sd">            A list that contains tuples having on the first position a regex for matching a path, and the second value </span>
+<span class="sd">            the processing for handling the path.</span>
+<span class="sd">        @param requestHandlerFactory: callable(AsyncServer, socket, tuple(string, integer))</span>
+<span class="sd">            The factory that provides request handlers, takes as arguments the server, request socket</span>
+<span class="sd">            and client address.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">serverAddress</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">),</span> <span class="s">&#39;Invalid server address </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">serverAddress</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pathProcessing</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&#39;Invalid path processing </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">pathProcessing</span>
+        <span class="k">assert</span> <span class="nb">callable</span><span class="p">(</span><span class="n">requestHandlerFactory</span><span class="p">),</span> <span class="s">&#39;Invalid request handler factory </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">requestHandlerFactory</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">map</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">dispatcher</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">map</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serverAddress</span> <span class="o">=</span> <span class="n">serverAddress</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pathProcessing</span> <span class="o">=</span> <span class="n">pathProcessing</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">requestHandlerFactory</span> <span class="o">=</span> <span class="n">requestHandlerFactory</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_socket</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_reuse_addr</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">serverAddress</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="mi">1024</span><span class="p">)</span>  <span class="c"># lower this to 5 if your OS complains</span>
+
+<div class="viewcode-block" id="AsyncServer.handle_accept"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.AsyncServer.handle_accept">[docs]</a>    <span class="k">def</span> <span class="nf">handle_accept</span> <span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: dispatcher.handle_accept</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">request</span><span class="p">,</span> <span class="n">address</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;A problem occurred while waiting connections&#39;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;A EWOULDBLOCK problem occurred while waiting connections&#39;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="c"># creates an instance of the handler class to handle the request/response</span>
+        <span class="c"># on the incoming connection</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">requestHandlerFactory</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+    </div>
+<div class="viewcode-block" id="AsyncServer.serve_forever"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.AsyncServer.serve_forever">[docs]</a>    <span class="k">def</span> <span class="nf">serve_forever</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Loops and servers the connections.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">loop</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">map</span><span class="p">)</span>
+            </div>
+<div class="viewcode-block" id="AsyncServer.serve_limited"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.AsyncServer.serve_limited">[docs]</a>    <span class="k">def</span> <span class="nf">serve_limited</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">count</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        For profiling purposes.</span>
+<span class="sd">        Loops the provided amount of times and servers the connections.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">loop</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">map</span><span class="p">,</span> <span class="n">count</span><span class="p">)</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+</div></div>
+<div class="viewcode-block" id="run"><a class="viewcode-back" href="../../../../../ally.core.http.server.html#ally.core.http.server.server_asyncore.run">[docs]</a><span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="n">pathAssemblies</span><span class="p">,</span> <span class="n">server_version</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">80</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Run the basic server.</span>
+<span class="sd">    </span>
+<span class="sd">    @param pathAssemblies: list[(regex, Assembly)]</span>
+<span class="sd">        A list that contains tuples having on the first position a string pattern for matching a path, and as a value </span>
+<span class="sd">        the assembly to be used for creating the context for handling the request for the path.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pathAssemblies</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&#39;Invalid path assemblies </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">pathAssemblies</span>
+    <span class="n">RequestHandler</span><span class="o">.</span><span class="n">server_version</span> <span class="o">=</span> <span class="n">server_version</span>
+    <span class="n">pathProcessing</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">assembly</span> <span class="ow">in</span> <span class="n">pathAssemblies</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="nb">str</span><span class="p">),</span> <span class="s">&#39;Invalid pattern </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">pattern</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">assembly</span><span class="p">,</span> <span class="n">Assembly</span><span class="p">),</span> <span class="s">&#39;Invalid assembly </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">assembly</span>
+
+        <span class="n">processing</span><span class="p">,</span> <span class="n">report</span> <span class="o">=</span> <span class="n">assembly</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">ONLY_AVAILABLE</span><span class="p">,</span> <span class="n">CREATE_REPORT</span><span class="p">,</span>
+                                             <span class="n">request</span><span class="o">=</span><span class="n">RequestHTTP</span><span class="p">,</span> <span class="n">requestCnt</span><span class="o">=</span><span class="n">RequestContentHTTPAsyncore</span><span class="p">,</span>
+                                             <span class="n">response</span><span class="o">=</span><span class="n">ResponseHTTP</span><span class="p">,</span> <span class="n">responseCnt</span><span class="o">=</span><span class="n">ResponseContentHTTP</span><span class="p">)</span>
+
+        <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;Assembly report for pattern </span><span class="se">\&#39;</span><span class="si">%s</span><span class="se">\&#39;</span><span class="s">:</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">report</span><span class="p">)</span>
+        <span class="n">pathProcessing</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">pattern</span><span class="p">),</span> <span class="n">processing</span><span class="p">))</span>
+        
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">server</span> <span class="o">=</span> <span class="n">AsyncServer</span><span class="p">((</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">),</span> <span class="n">pathProcessing</span><span class="p">,</span> <span class="n">RequestHandler</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&#39;=&#39;</span> <span class="o">*</span> <span class="mi">50</span><span class="p">,</span> <span class="s">&#39;Started Async REST API server...&#39;</span><span class="p">)</span>
+<span class="c">#        import profile</span>
+<span class="c">#        profile.runctx(&#39;server.serve_limited(1000)&#39;, globals(), locals(), &#39;profiler.data&#39;)</span>
+        <span class="n">server</span><span class="o">.</span><span class="n">serve_forever</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">KeyboardInterrupt</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&#39;=&#39;</span> <span class="o">*</span> <span class="mi">50</span><span class="p">,</span> <span class="s">&#39;^C received, shutting down server&#39;</span><span class="p">)</span>
+        <span class="n">server</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;=&#39;</span> <span class="o">*</span> <span class="mi">50</span> <span class="o">+</span> <span class="s">&#39; The server has stooped&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span> <span class="n">server</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">except</span><span class="p">:</span> <span class="k">pass</span>
+        </div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../index.html">ally-py 1.0b1 documentation</a> &raquo;</li>
+          <li><a href="../../../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Gabriel Nistor.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

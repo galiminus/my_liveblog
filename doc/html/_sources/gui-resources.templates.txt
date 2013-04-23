@@ -1,0 +1,10 @@
+templates Package
+=================
+
+Subpackages
+-----------
+
+.. toctree::
+
+    gui-resources.templates.layouts
+

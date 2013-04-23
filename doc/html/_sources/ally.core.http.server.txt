@@ -1,0 +1,43 @@
+server Package
+==============
+
+:mod:`server` Package
+---------------------
+
+.. automodule:: ally.core.http.server
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+:mod:`server_asyncore` Module
+-----------------------------
+
+.. automodule:: ally.core.http.server.server_asyncore
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+:mod:`server_basic` Module
+--------------------------
+
+.. automodule:: ally.core.http.server.server_basic
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+:mod:`server_mongrel2` Module
+-----------------------------
+
+.. automodule:: ally.core.http.server.server_mongrel2
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+:mod:`wsgi` Module
+------------------
+
+.. automodule:: ally.core.http.server.wsgi
+    :members:
+    :undoc-members:
+    :show-inheritance:
+

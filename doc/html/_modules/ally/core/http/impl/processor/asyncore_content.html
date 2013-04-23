@@ -1,0 +1,306 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>ally.core.http.impl.processor.asyncore_content &mdash; ally-py 1.0b1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../../../../',
+        VERSION:     '1.0b1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../../../../_static/doctools.js"></script>
+    <link rel="top" title="ally-py 1.0b1 documentation" href="../../../../../../index.html" />
+    <link rel="up" title="Module code" href="../../../../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../../index.html">ally-py 1.0b1 documentation</a> &raquo;</li>
+          <li><a href="../../../../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for ally.core.http.impl.processor.asyncore_content</h1><div class="highlight"><pre>
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">Created on Nov 1, 2012</span>
+
+<span class="sd">@package: ally core http</span>
+<span class="sd">@copyright: 2012 Sourcefabric o.p.s.</span>
+<span class="sd">@license: http://www.gnu.org/licenses/gpl-3.0.txt</span>
+<span class="sd">@author: Gabriel Nistor</span>
+
+<span class="sd">Provides the asyncore handling of content.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">from</span> <span class="nn">ally.api.config</span> <span class="kn">import</span> <span class="n">INSERT</span><span class="p">,</span> <span class="n">UPDATE</span>
+<span class="kn">from</span> <span class="nn">ally.container.ioc</span> <span class="kn">import</span> <span class="n">injected</span>
+<span class="kn">from</span> <span class="nn">ally.core.spec.codes</span> <span class="kn">import</span> <span class="n">Code</span>
+<span class="kn">from</span> <span class="nn">ally.design.context</span> <span class="kn">import</span> <span class="n">Context</span><span class="p">,</span> <span class="n">defines</span><span class="p">,</span> <span class="n">requires</span>
+<span class="kn">from</span> <span class="nn">ally.design.processor</span> <span class="kn">import</span> <span class="n">HandlerProcessor</span><span class="p">,</span> <span class="n">Chain</span>
+<span class="kn">from</span> <span class="nn">ally.support.util_io</span> <span class="kn">import</span> <span class="n">IInputStream</span>
+<span class="kn">from</span> <span class="nn">ally.zip.util_zip</span> <span class="kn">import</span> <span class="n">normOSPath</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Callable</span>
+<span class="kn">from</span> <span class="nn">genericpath</span> <span class="kn">import</span> <span class="n">isdir</span>
+<span class="kn">from</span> <span class="nn">io</span> <span class="kn">import</span> <span class="n">BytesIO</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="Request"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.Request">[docs]</a><span class="k">class</span> <span class="nc">Request</span><span class="p">(</span><span class="n">Context</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The request context.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># ---------------------------------------------------------------- Required</span>
+    <span class="n">method</span> <span class="o">=</span> <span class="n">requires</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span> 
+    </div>
+<div class="viewcode-block" id="RequestContent"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.RequestContent">[docs]</a><span class="k">class</span> <span class="nc">RequestContent</span><span class="p">(</span><span class="n">Context</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The request content context.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># ---------------------------------------------------------------- Required</span>
+    <span class="n">length</span> <span class="o">=</span> <span class="n">requires</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="c"># ---------------------------------------------------------------- Defined</span>
+    <span class="n">contentReader</span> <span class="o">=</span> <span class="n">defines</span><span class="p">(</span><span class="n">Callable</span><span class="p">)</span>
+    <span class="n">source</span> <span class="o">=</span> <span class="n">defines</span><span class="p">(</span><span class="n">IInputStream</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Response"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.Response">[docs]</a><span class="k">class</span> <span class="nc">Response</span><span class="p">(</span><span class="n">Context</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The response context.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># ---------------------------------------------------------------- Defined</span>
+    <span class="n">code</span> <span class="o">=</span> <span class="n">defines</span><span class="p">(</span><span class="n">Code</span><span class="p">)</span>
+    
+<span class="c"># --------------------------------------------------------------------</span>
+</div>
+<span class="nd">@injected</span>
+<div class="viewcode-block" id="AsyncoreContentHandler"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.AsyncoreContentHandler">[docs]</a><span class="k">class</span> <span class="nc">AsyncoreContentHandler</span><span class="p">(</span><span class="n">HandlerProcessor</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Provides asyncore content handling, basically this handler buffers up the async data received in order to be</span>
+<span class="sd">    used by the other handlers.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">contentMethods</span> <span class="o">=</span> <span class="p">{</span><span class="n">INSERT</span><span class="p">,</span> <span class="n">UPDATE</span><span class="p">}</span>
+    <span class="c"># The methods that have content.</span>
+
+    <span class="n">dumpRequestsSize</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>
+    <span class="c"># The minimum size of the request length to be dumped on the file system.</span>
+    <span class="n">dumpRequestsPath</span> <span class="o">=</span> <span class="nb">str</span>
+    <span class="c"># The path where the requests are dumped when they are to big to keep in memory.</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsSize</span><span class="p">,</span> <span class="nb">int</span><span class="p">),</span> <span class="s">&#39;Invalid dump size </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsSize</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span><span class="p">,</span> <span class="nb">str</span><span class="p">),</span> <span class="s">&#39;Invalid dump path </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span> <span class="o">=</span> <span class="n">normOSPath</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span><span class="p">):</span> <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">isdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span><span class="p">)</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">access</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">W_OK</span><span class="p">),</span> \
+        <span class="s">&#39;Unable to access the dump directory </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsPath</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">_count</span> <span class="o">=</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="AsyncoreContentHandler.process"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.AsyncoreContentHandler.process">[docs]</a>    <span class="k">def</span> <span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chain</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span><span class="n">Request</span><span class="p">,</span> <span class="n">requestCnt</span><span class="p">:</span><span class="n">RequestContent</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span><span class="n">Response</span><span class="p">,</span> <span class="o">**</span><span class="n">keyargs</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        @see: HandlerProcessor.process</span>
+<span class="sd">        </span>
+<span class="sd">        Provide the headers encoders and decoders.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">chain</span><span class="p">,</span> <span class="n">Chain</span><span class="p">),</span> <span class="s">&#39;Invalid chain </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">chain</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">Request</span><span class="p">),</span> <span class="s">&#39;Invalid request </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">request</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">requestCnt</span><span class="p">,</span> <span class="n">RequestContent</span><span class="p">),</span> <span class="s">&#39;Invalid request content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">requestCnt</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">Response</span><span class="p">),</span> <span class="s">&#39;Invalid response </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">response</span>
+
+        <span class="k">if</span> <span class="n">Response</span><span class="o">.</span><span class="n">code</span> <span class="ow">in</span> <span class="n">response</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">response</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">isSuccess</span><span class="p">:</span> <span class="k">return</span>  <span class="c"># Skip in case the response is in error</span>
+        <span class="n">chain</span><span class="o">.</span><span class="n">proceed</span><span class="p">()</span>
+        
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">contentMethods</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">RequestContent</span><span class="o">.</span><span class="n">length</span> <span class="ow">in</span> <span class="n">requestCnt</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">requestCnt</span><span class="o">.</span><span class="n">length</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span> <span class="k">return</span>
+                
+                <span class="k">if</span> <span class="n">requestCnt</span><span class="o">.</span><span class="n">length</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">dumpRequestsSize</span><span class="p">:</span>
+                    <span class="n">requestCnt</span><span class="o">.</span><span class="n">contentReader</span> <span class="o">=</span> <span class="n">ReaderInFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_path</span><span class="p">(),</span> <span class="n">chain</span><span class="p">,</span> <span class="n">requestCnt</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">requestCnt</span><span class="o">.</span><span class="n">contentReader</span> <span class="o">=</span> <span class="n">ReaderInMemory</span><span class="p">(</span><span class="n">chain</span><span class="p">,</span> <span class="n">requestCnt</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">requestCnt</span><span class="o">.</span><span class="n">contentReader</span> <span class="o">=</span> <span class="n">ReaderInFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_path</span><span class="p">(),</span> <span class="n">chain</span><span class="p">,</span> <span class="n">requestCnt</span><span class="p">)</span>
+
+    <span class="c"># ----------------------------------------------------------------</span>
+    </div>
+    <span class="k">def</span> <span class="nf">_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Provide the path for the request file.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">tm_year</span><span class="p">,</span> <span class="n">tm_mon</span><span class="p">,</span> <span class="n">tm_mday</span><span class="p">,</span> <span class="n">tm_hour</span><span class="p">,</span> <span class="n">tm_min</span><span class="p">,</span> <span class="n">tm_sec</span><span class="p">,</span> <span class="o">*</span><span class="n">_rest</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">localtime</span><span class="p">()</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="s">&#39;request_</span><span class="si">%s</span><span class="s">_</span><span class="si">%s</span><span class="s">-</span><span class="si">%s</span><span class="s">-</span><span class="si">%s</span><span class="s">_</span><span class="si">%s</span><span class="s">-</span><span class="si">%s</span><span class="s">-</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_count</span><span class="p">,</span> <span class="n">tm_year</span><span class="p">,</span> <span class="n">tm_mon</span><span class="p">,</span> <span class="n">tm_mday</span><span class="p">,</span> <span class="n">tm_hour</span><span class="p">,</span> <span class="n">tm_min</span><span class="p">,</span> <span class="n">tm_sec</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="n">path</span>
+
+<span class="c"># --------------------------------------------------------------------</span>
+</div>
+<div class="viewcode-block" id="ReaderInMemory"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.ReaderInMemory">[docs]</a><span class="k">class</span> <span class="nc">ReaderInMemory</span><span class="p">:</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Provides the reader in memory.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;_chain&#39;</span><span class="p">,</span> <span class="s">&#39;_requestCnt&#39;</span><span class="p">,</span> <span class="s">&#39;_stream&#39;</span><span class="p">,</span> <span class="s">&#39;_size&#39;</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chain</span><span class="p">,</span> <span class="n">requestCnt</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Construct the reader.</span>
+<span class="sd">        </span>
+<span class="sd">        @param chain: Chain</span>
+<span class="sd">            The chain that is used for further processing.</span>
+<span class="sd">        @param requestCnt: RequestContent</span>
+<span class="sd">            The request content to use the reader with.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">chain</span><span class="p">,</span> <span class="n">Chain</span><span class="p">),</span> <span class="s">&#39;Invalid chain </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">chain</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">requestCnt</span><span class="p">,</span> <span class="n">RequestContent</span><span class="p">),</span> <span class="s">&#39;Invalid request content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">requestCnt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_chain</span> <span class="o">=</span> <span class="n">chain</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span> <span class="o">=</span> <span class="n">requestCnt</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="mi">0</span>
+        
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Push data into the reader.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;Reader is finalized&#39;</span>
+        <span class="k">if</span> <span class="n">data</span> <span class="o">!=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span><span class="o">.</span><span class="n">length</span>
+            <span class="k">if</span> <span class="n">length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">&gt;</span> <span class="n">length</span><span class="p">:</span>
+                    <span class="n">dif</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">-</span> <span class="n">length</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="n">length</span>
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">data</span><span class="p">)[:</span><span class="n">dif</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">==</span> <span class="n">length</span><span class="p">:</span> <span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">else</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            
+        <span class="k">if</span> <span class="n">data</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span><span class="o">.</span><span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span><span class="o">.</span><span class="n">contentReader</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_stream</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chain</span>
+</div>
+<div class="viewcode-block" id="ReaderInFile"><a class="viewcode-back" href="../../../../../../ally.core.http.impl.processor.html#ally.core.http.impl.processor.asyncore_content.ReaderInFile">[docs]</a><span class="k">class</span> <span class="nc">ReaderInFile</span><span class="p">:</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Provides the reader in file.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;_chain&#39;</span><span class="p">,</span> <span class="s">&#39;_path&#39;</span><span class="p">,</span> <span class="s">&#39;_requestCnt&#39;</span><span class="p">,</span> <span class="s">&#39;_file&#39;</span><span class="p">,</span> <span class="s">&#39;_size&#39;</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">chain</span><span class="p">,</span> <span class="n">requestCnt</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Construct the reader.</span>
+<span class="sd">        </span>
+<span class="sd">        @param chain: Chain</span>
+<span class="sd">            The chain that is used for further processing.</span>
+<span class="sd">        @param requestCnt: RequestContent</span>
+<span class="sd">            The request content to use the reader with.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="nb">str</span><span class="p">),</span> <span class="s">&#39;Invalid path </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">path</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">chain</span><span class="p">,</span> <span class="n">Chain</span><span class="p">),</span> <span class="s">&#39;Invalid chain </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">chain</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">requestCnt</span><span class="p">,</span> <span class="n">RequestContent</span><span class="p">),</span> <span class="s">&#39;Invalid request content </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">requestCnt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_path</span> <span class="o">=</span> <span class="n">path</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_chain</span> <span class="o">=</span> <span class="n">chain</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span> <span class="o">=</span> <span class="n">requestCnt</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_file</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">&#39;wb&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="mi">0</span>
+        
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Push data into the reader.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;Reader is finalized&#39;</span>
+        <span class="k">if</span> <span class="n">data</span> <span class="o">!=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span><span class="o">.</span><span class="n">length</span>
+            <span class="k">if</span> <span class="n">length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">&gt;</span> <span class="n">length</span><span class="p">:</span>
+                    <span class="n">dif</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">-</span> <span class="n">length</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="n">length</span>
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">data</span><span class="p">)[:</span><span class="n">dif</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">==</span> <span class="n">length</span><span class="p">:</span> <span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">else</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            
+        <span class="k">if</span> <span class="n">data</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span><span class="o">.</span><span class="n">source</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_path</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">&#39;rb&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_requestCnt</span><span class="o">.</span><span class="n">contentReader</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file</span> <span class="o">=</span> <span class="bp">None</span>
+            
+            <span class="bp">self</span><span class="o">.</span><span class="n">_chain</span><span class="o">.</span><span class="n">callBack</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_path</span><span class="p">))</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chain</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../../index.html">ally-py 1.0b1 documentation</a> &raquo;</li>
+          <li><a href="../../../../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Gabriel Nistor.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

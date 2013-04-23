@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: security-http-acl
+Version: 1.0.dev
+Summary: Security for HTTP gateway
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Gabriel Nistor
+Author-email: gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: Access control layer for HTTP gateway
+Keywords: Ally REST framework security plugin acl
+Platform: all

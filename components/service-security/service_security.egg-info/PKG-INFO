@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: service-security
+Version: 1.0.dev
+Summary: Ally framework - Security gateway service
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Gabriel Nistor
+Author-email: mugur.rus@sourcefabric.org, gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: The security service of the Ally framework
+Keywords: Ally HTTP framework
+Platform: all

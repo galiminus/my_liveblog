@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: gui-security
+Version: 1.0.dev
+Summary: Ally framework - GUI actions plugin
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Gabriel Nistor
+Author-email: gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: The plugin that provides the support for configuring access for the gui actions
+Keywords: Ally REST framework plugin acl GUI
+Platform: all

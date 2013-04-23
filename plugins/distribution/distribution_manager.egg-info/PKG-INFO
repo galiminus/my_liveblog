@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: distribution-manager
+Version: 1.0.dev
+Summary: Distribution manager plugin
+Home-page: http://www.sourcefabric.org/en/superdesk/
+Author: Gabriel Nistor
+Author-email: gabriel.nistor@sourcefabric.org
+License: GPL v3
+Description: The distribution manager support plugin of the Ally framework plugins
+Keywords: Ally REST framework
+Platform: all
